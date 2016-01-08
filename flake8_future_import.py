@@ -10,29 +10,42 @@ try:
 except ImportError as e:
     argparse = e
 
-from ast import NodeVisitor, PyCF_ONLY_AST, Str, Module
+import ast
 
 __version__ = '0.3.2'
 
 
-class FutureImportVisitor(NodeVisitor):
+class FutureImportVisitor(ast.NodeVisitor):
 
     def __init__(self):
         super(FutureImportVisitor, self).__init__()
         self.future_imports = []
+
         self._uses_code = False
+        self._uses_print = False
+        self._uses_division = False
+        self._uses_import = False
+        self._uses_str_literals = False
 
     def visit_ImportFrom(self, node):
         if node.module == '__future__':
             self.future_imports += [node]
-
-    def visit_Expr(self, node):
-        if not isinstance(node.value, Str) or node.value.col_offset != 0:
-            self._uses_code = True
+        else:
+            self._uses_import = True
 
     def generic_visit(self, node):
-        if not isinstance(node, Module):
+        if not isinstance(node, ast.Module):
             self._uses_code = True
+
+        if isinstance(node, ast.Str):
+            self._uses_str_literals = True
+        elif isinstance(node, ast.Print):
+            self._uses_print = True
+        elif isinstance(node, ast.Div):
+            self._uses_division = True
+        elif isinstance(node, ast.Import):
+            self._uses_import = True
+
         super(FutureImportVisitor, self).generic_visit(node)
 
     @property
@@ -109,8 +122,22 @@ class FutureImportChecker(Flake8Argparse):
                 yield self._generate_error(alias.name, import_node.lineno, True)
                 present.add(alias.name)
         for name in self.AVAILABLE_IMPORTS:
-            if name not in present:
-                yield self._generate_error(name, 1, False)
+            if name in present:
+                continue
+
+            if name == 'print_function' and not visitor._uses_print:
+                continue
+
+            if name == 'division' and not visitor._uses_division:
+                continue
+
+            if name == 'absolute_import' and not visitor._uses_import:
+                continue
+
+            if name == 'unicode_literals' and not visitor._uses_str_literals:
+                continue
+
+            yield self._generate_error(name, 1, False)
 
 
 def main(args):
@@ -150,7 +177,7 @@ def main(args):
         ignored = set()
     for filename in args.files:
         with open(filename, 'rb') as f:
-            tree = compile(f.read(), filename, 'exec', PyCF_ONLY_AST)
+            tree = compile(f.read(), filename, 'exec', ast.PyCF_ONLY_AST)
         for line, char, msg, checker in FutureImportChecker(tree,
                                                             filename).run():
             if msg[:4] not in ignored:
