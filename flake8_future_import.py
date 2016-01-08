@@ -27,6 +27,19 @@ class FutureImportVisitor(ast.NodeVisitor):
         self._uses_import = False
         self._uses_str_literals = False
 
+    def _is_print(self, node):
+        # python 2
+        if hasattr(ast, 'Print') and isinstance(node, ast.Print):
+            return True
+
+        # python 3
+        if isinstance(node, ast.Call) and \
+           isinstance(node.func, ast.Name) and \
+           node.func.id == 'print':
+            return True
+
+        return False
+
     def visit_ImportFrom(self, node):
         if node.module == '__future__':
             self.future_imports += [node]
@@ -39,7 +52,7 @@ class FutureImportVisitor(ast.NodeVisitor):
 
         if isinstance(node, ast.Str):
             self._uses_str_literals = True
-        elif isinstance(node, ast.Print):
+        elif self._is_print(node):
             self._uses_print = True
         elif isinstance(node, ast.Div):
             self._uses_division = True
