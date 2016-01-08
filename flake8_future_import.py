@@ -85,6 +85,7 @@ class FutureImportChecker(Flake8Argparse):
     version = __version__
     name = 'flake8-future-import'
     require_code = True
+    require_used = False
 
     def __init__(self, tree, filename):
         self.tree = tree
@@ -94,10 +95,13 @@ class FutureImportChecker(Flake8Argparse):
         parser.add_argument('--require-code', action='store_true',
                             help='Do only apply to files which not only have '
                                  'comments and (doc)strings')
+        parser.add_argument('--require-used', action='store_true',
+                            help='Only alert when relevant features are used')
 
     @classmethod
     def parse_options(cls, options):
         cls.require_code = options.require_code
+        cls.require_used = options.require_used
 
     def _generate_error(self, future_import, lineno, present):
         code = 10 + self.AVAILABLE_IMPORTS.index(future_import)
@@ -125,17 +129,18 @@ class FutureImportChecker(Flake8Argparse):
             if name in present:
                 continue
 
-            if name == 'print_function' and not visitor._uses_print:
-                continue
+            if self.require_used:
+                if name == 'print_function' and not visitor._uses_print:
+                    continue
 
-            if name == 'division' and not visitor._uses_division:
-                continue
+                if name == 'division' and not visitor._uses_division:
+                    continue
 
-            if name == 'absolute_import' and not visitor._uses_import:
-                continue
+                if name == 'absolute_import' and not visitor._uses_import:
+                    continue
 
-            if name == 'unicode_literals' and not visitor._uses_str_literals:
-                continue
+                if name == 'unicode_literals' and not visitor._uses_str_literals:
+                    continue
 
             yield self._generate_error(name, 1, False)
 

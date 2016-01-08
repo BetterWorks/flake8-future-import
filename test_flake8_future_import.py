@@ -175,6 +175,7 @@ class FeatureDetectionTestCase(TestCaseBase):
         code = textwrap.dedent(code)
         tree = ast.parse(code)
         checker = flake8_future_import.FutureImportChecker(tree, 'fn')
+        checker.require_used = True
         iterator = self.iterator(checker)
         return self.check_result(iterator)
 
