@@ -10,29 +10,55 @@ try:
 except ImportError as e:
     argparse = e
 
-from ast import NodeVisitor, Str, Module, parse
+import ast
 
 __version__ = '0.3.2'
 
 
-class FutureImportVisitor(NodeVisitor):
+class FutureImportVisitor(ast.NodeVisitor):
 
     def __init__(self):
         super(FutureImportVisitor, self).__init__()
         self.future_imports = []
+
         self._uses_code = False
+        self._uses_print = False
+        self._uses_division = False
+        self._uses_import = False
+        self._uses_str_literals = False
+
+    def _is_print(self, node):
+        # python 2
+        if hasattr(ast, 'Print') and isinstance(node, ast.Print):
+            return True
+
+        # python 3
+        if isinstance(node, ast.Call) and \
+           isinstance(node.func, ast.Name) and \
+           node.func.id == 'print':
+            return True
+
+        return False
 
     def visit_ImportFrom(self, node):
         if node.module == '__future__':
             self.future_imports += [node]
-
-    def visit_Expr(self, node):
-        if not isinstance(node.value, Str) or node.value.col_offset != 0:
-            self._uses_code = True
+        else:
+            self._uses_import = True
 
     def generic_visit(self, node):
-        if not isinstance(node, Module):
+        if not isinstance(node, ast.Module):
             self._uses_code = True
+
+        if isinstance(node, ast.Str):
+            self._uses_str_literals = True
+        elif self._is_print(node):
+            self._uses_print = True
+        elif isinstance(node, ast.Div):
+            self._uses_division = True
+        elif isinstance(node, ast.Import):
+            self._uses_import = True
+
         super(FutureImportVisitor, self).generic_visit(node)
 
     @property
@@ -72,6 +98,7 @@ class FutureImportChecker(Flake8Argparse):
     version = __version__
     name = 'flake8-future-import'
     require_code = True
+    require_used = False
 
     def __init__(self, tree, filename):
         self.tree = tree
@@ -81,10 +108,13 @@ class FutureImportChecker(Flake8Argparse):
         parser.add_argument('--require-code', action='store_true',
                             help='Do only apply to files which not only have '
                                  'comments and (doc)strings')
+        parser.add_argument('--require-used', action='store_true',
+                            help='Only alert when relevant features are used')
 
     @classmethod
     def parse_options(cls, options):
         cls.require_code = options.require_code
+        cls.require_used = options.require_used
 
     def _generate_error(self, future_import, lineno, present):
         code = 10 + self.AVAILABLE_IMPORTS.index(future_import)
@@ -109,8 +139,23 @@ class FutureImportChecker(Flake8Argparse):
                 yield self._generate_error(alias.name, import_node.lineno, True)
                 present.add(alias.name)
         for name in self.AVAILABLE_IMPORTS:
-            if name not in present:
-                yield self._generate_error(name, 1, False)
+            if name in present:
+                continue
+
+            if self.require_used:
+                if name == 'print_function' and not visitor._uses_print:
+                    continue
+
+                if name == 'division' and not visitor._uses_division:
+                    continue
+
+                if name == 'absolute_import' and not visitor._uses_import:
+                    continue
+
+                if name == 'unicode_literals' and not visitor._uses_str_literals:
+                    continue
+
+            yield self._generate_error(name, 1, False)
 
 
 def main(args):
@@ -150,7 +195,7 @@ def main(args):
         ignored = set()
     for filename in args.files:
         with open(filename, 'rb') as f:
-            tree = parse(f.read(), filename=filename, mode='exec')
+            tree = ast.parse(f.read(), filename=filename, mode='exec')
         for line, char, msg, checker in FutureImportChecker(tree,
                                                             filename).run():
             if msg[:4] not in ignored:

@@ -6,6 +6,7 @@ import itertools
 import os
 import re
 import tempfile
+import textwrap
 import unittest
 
 import six
@@ -166,6 +167,59 @@ class BadSyntaxMetaClass(type):
 class BadSyntaxTestCase(TestCaseBase):
 
     """Test using various bad syntax examples from Python's library."""
+
+
+class FeatureDetectionTestCase(TestCaseBase):
+
+    def check_code(self, code):
+        code = textwrap.dedent(code)
+        tree = ast.parse(code)
+        checker = flake8_future_import.FutureImportChecker(tree, 'fn')
+        checker.require_used = True
+        iterator = self.iterator(checker)
+        return self.check_result(iterator)
+
+    def assert_errors(self, code, missing=None, forbidden=None):
+        missing = missing or set()
+        forbidden = forbidden or set()
+
+        found_missing, found_forbidden = self.check_code(code)
+
+        self.assertEqual(missing, found_missing)
+        self.assertEqual(forbidden, found_forbidden)
+
+    def test_no_code(self):
+        self.assert_errors('')
+        self.assert_errors('# comment only')
+
+    def test_simple_statement(self):
+        self.assert_errors('1+1', missing={'generator_stop', 'with_statement'})
+
+    def test_print_function(self):
+        expected_missing = {'print_function', 'generator_stop', 'with_statement'}
+        self.assert_errors('print(foo)', expected_missing)
+
+        expected_missing = {'print_function', 'unicode_literals', 'generator_stop', 'with_statement'}
+        self.assert_errors('print("foo")', expected_missing)
+
+    def test_unicode_literals(self):
+        expected_missing = {'unicode_literals', 'generator_stop', 'with_statement'}
+        self.assert_errors('"foo"', expected_missing)
+        self.assert_errors('u"foo"', expected_missing)
+        self.assert_errors('r"foo"', expected_missing)
+        self.assert_errors('fn("foo")', expected_missing)
+
+    def test_division(self):
+        expected_missing = {'generator_stop', 'with_statement'}
+
+        # not division
+        self.assert_errors('a % b', expected_missing)
+
+        expected_missing |= {'division'}
+        self.assert_errors('1 / 0', expected_missing)
+        self.assert_errors('1 / 2 / 1', expected_missing)
+        self.assert_errors('a /= b', expected_missing)
+        self.assert_errors('fn(3 / 2)', expected_missing)
 
 
 if __name__ == '__main__':
