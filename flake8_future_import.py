@@ -15,7 +15,7 @@ except ImportError as e:
 
 import ast
 
-__version__ = '0.4.3'
+__version__ = '0.4.3-bw'
 
 
 class FutureImportVisitor(ast.NodeVisitor):
